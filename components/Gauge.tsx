@@ -1,14 +1,15 @@
-import { STATE_COLOR } from "@/lib/kss";
-import type { StateKey } from "@/lib/i18n";
+import { STATE_COLOR } from "@/lib/indices";
 
 /** 0~100을 반원 게이지로 표시. 서버 렌더링되는 순수 SVG(스크립트 없음). */
 export default function Gauge({
   value,
   state,
+  bands,
   label,
 }: {
   value: number;
-  state: StateKey;
+  state: string;
+  bands: { from: number; to: number; key: string }[];
   label: string;
 }) {
   const W = 320;
@@ -22,14 +23,6 @@ export default function Gauge({
     const angle = Math.PI * (1 - pct / 100);
     return [cx + radius * Math.cos(angle), cy - radius * Math.sin(angle)] as const;
   };
-
-  // 국면 구간별 호(0-25, 25-50, 50-75, 75-100)
-  const bands: { from: number; to: number; key: StateKey }[] = [
-    { from: 0, to: 25, key: "depressed" },
-    { from: 25, to: 50, key: "neutral" },
-    { from: 50, to: 75, key: "extended" },
-    { from: 75, to: 100, key: "overheated" },
-  ];
 
   const arc = (from: number, to: number) => {
     const [x1, y1] = polar(from, r);

@@ -1,15 +1,17 @@
 import "server-only";
 import fs from "node:fs";
 import path from "node:path";
-import type { KssData } from "./kss";
+import type { IndexData, IndexId } from "./indices";
 
-export * from "./kss";
+export * from "./indices";
 
-let cache: KssData | null = null;
+const cache = new Map<IndexId, IndexData>();
 
-export function loadKss(): KssData {
-  if (cache) return cache;
-  const file = path.join(process.cwd(), "data", "kss.json");
-  cache = JSON.parse(fs.readFileSync(file, "utf-8")) as KssData;
-  return cache;
+export function loadIndex(id: IndexId): IndexData {
+  const hit = cache.get(id);
+  if (hit) return hit;
+  const file = path.join(process.cwd(), "data", `${id}.json`);
+  const data = JSON.parse(fs.readFileSync(file, "utf-8")) as IndexData;
+  cache.set(id, data);
+  return data;
 }

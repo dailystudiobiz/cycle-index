@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { downsample, sliceRange, STATE_COLOR, type HistoryPoint } from "@/lib/kss";
+import { downsample, sliceRange, STATE_COLOR, type HistoryPoint } from "@/lib/indices";
 
 const RANGES = ["1y", "5y", "all"] as const;
 type Range = (typeof RANGES)[number];

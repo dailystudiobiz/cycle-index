@@ -15,33 +15,45 @@ cd "$(dirname "$0")"
 
 log() { echo "[$(date '+%F %T')] $*"; }
 
-# 게시 중인 마지막 날짜를 먼저 기억해둔다 (후퇴 감지용)
-PREV_DATE=$(python3 -c "import json;print(json.load(open('data/kss.json'))['latest']['date'])" 2>/dev/null || echo "")
+INDICES="kss kfg"
 
-log "지표 재계산"
-python3 pipeline/build_kss.py
+last_date() { python3 -c "import json;print(json.load(open('data/$1.json'))['latest']['date'])" 2>/dev/null || echo ""; }
+latest_val() { python3 -c "import json;print(json.load(open('data/$1.json'))['latest']['value'])"; }
 
-if git diff --quiet -- data/kss.json; then
-  log "변동 없음 (거래일 아님 또는 값 동일) — 종료"
+CHANGED=""
+for ix in $INDICES; do
+  PREV=$(last_date "$ix")
+
+  log "[$ix] 재계산"
+  python3 "pipeline/build_${ix}.py" | sed "s/^/  /"
+
+  if git diff --quiet -- "data/$ix.json"; then
+    log "[$ix] 변동 없음"
+    continue
+  fi
+
+  NEW=$(last_date "$ix")
+
+  # 후퇴 방지 — 상류(Yahoo)가 최근 거래일을 누락하거나 미정산 종가를 비워두는 일이
+  # 실제로 있었다. 이미 게시한 날짜보다 과거로 가는 결과는 배포하지 않고 원복한다.
+  if [ -n "$PREV" ] && [ "$NEW" \< "$PREV" ]; then
+    log "[$ix] 중단: $PREV → $NEW 로 후퇴함. 상류 데이터 결손으로 판단해 원복."
+    git checkout -- "data/$ix.json"
+    continue
+  fi
+
+  log "[$ix] 갱신: $NEW = $(latest_val "$ix")"
+  git add "data/$ix.json"
+  CHANGED="$CHANGED $ix"
+done
+
+if [ -z "$CHANGED" ]; then
+  log "전 지표 변동 없음 — 종료"
   exit 0
 fi
 
-NEW_DATE=$(python3 -c "import json;print(json.load(open('data/kss.json'))['latest']['date'])")
-
-# 후퇴 방지 — 상류(Yahoo) 데이터가 최근 거래일을 누락하는 일이 실제로 있었다.
-# 이미 게시한 날짜보다 과거로 가는 결과는 절대 배포하지 않고 원복한다.
-if [ -n "$PREV_DATE" ] && [ "$NEW_DATE" \< "$PREV_DATE" ]; then
-  log "중단: 계산 결과가 $PREV_DATE → $NEW_DATE 로 후퇴함. 상류 데이터 결손으로 판단해 원복."
-  git checkout -- data/kss.json
-  exit 1
-fi
-
-NEW_KSS=$(python3 -c "import json;print(json.load(open('data/kss.json'))['latest']['kss'])")
-log "갱신: $NEW_DATE  KSS=$NEW_KSS"
-
-git add data/kss.json
-git -c user.name="DailyStudio" -c user.email="dailystudiobiz@gmail.com" \
-    commit -q -m "data: KSS $NEW_DATE = $NEW_KSS"
+MSG="data:$(for ix in $CHANGED; do printf " %s %s=%s" "$ix" "$(last_date "$ix")" "$(latest_val "$ix")"; done)"
+git -c user.name="DailyStudio" -c user.email="dailystudiobiz@gmail.com" commit -q -m "$MSG"
 git push -q origin main
 
 log "푸시 완료 — Cloudflare Pages 재빌드 시작됨"

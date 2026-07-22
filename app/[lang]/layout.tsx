@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { LANGS, dict, isLang, otherLang, type Lang } from "@/lib/i18n";
-import { loadKss } from "@/lib/data";
+import { BRAND, LANGS, dict, isLang, otherLang, type Lang } from "@/lib/i18n";
+import { INDEX_IDS, INDEX_PATH, loadIndex } from "@/lib/data";
 import { SITE_URL } from "@/lib/site";
 import "../globals.css";
 
@@ -19,21 +19,9 @@ export async function generateMetadata({
   const t = dict(l);
   return {
     metadataBase: new URL(SITE_URL),
-    title: { default: `${t.siteName} · KSS`, template: `%s · ${t.siteName}` },
-    description: t.metaDescription,
-    alternates: {
-      canonical: `/${l}/`,
-      languages: { ko: "/ko/", en: "/en/", "x-default": "/ko/" },
-    },
-    openGraph: {
-      type: "website",
-      siteName: t.siteName,
-      title: t.siteName,
-      description: t.metaDescription,
-      url: `${SITE_URL}/${l}/`,
-      locale: l === "ko" ? "ko_KR" : "en_US",
-    },
-    twitter: { card: "summary", title: t.siteName, description: t.metaDescription },
+    title: { default: BRAND, template: `%s · ${BRAND}` },
+    description: t.tagline,
+    openGraph: { siteName: BRAND },
   };
 }
 
@@ -48,23 +36,26 @@ export default async function LangLayout({
   const l: Lang = isLang(lang) ? lang : "ko";
   const t = dict(l);
   const other = otherLang(l);
-  const { meta } = loadKss();
+  const lastUpdated = INDEX_IDS.map((i) => loadIndex(i).meta.last_date).sort().at(-1);
 
   return (
     <html lang={l}>
       <body className="min-h-screen flex flex-col">
         <header className="border-b border-[var(--border)]">
           <div className="mx-auto max-w-4xl px-4 py-3 flex items-center gap-4">
-            <Link href={`/${l}/`} className="font-semibold tracking-tight">
-              {t.siteName}
+            <Link href={`/${l}/`} className="font-semibold tracking-tight shrink-0">
+              {BRAND}
             </Link>
-            <nav className="flex gap-4 text-sm text-[var(--fg-muted)] ml-auto">
-              <Link href={`/${l}/`} className="hover:text-[var(--fg)]">
-                {t.nav.index}
-              </Link>
-              <Link href={`/${l}/methodology/`} className="hover:text-[var(--fg)]">
-                {t.nav.methodology}
-              </Link>
+            <nav className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-[var(--fg-muted)] ml-auto">
+              {INDEX_IDS.map((id) => (
+                <Link
+                  key={id}
+                  href={`/${l}/${INDEX_PATH[id]}`}
+                  className="hover:text-[var(--fg)]"
+                >
+                  {t.indices[id].short}
+                </Link>
+              ))}
               <Link href={`/${other}/`} className="hover:text-[var(--fg)]" hrefLang={other}>
                 {t.langSwitch}
               </Link>
@@ -78,7 +69,7 @@ export default async function LangLayout({
           <div className="mx-auto max-w-4xl px-4 py-6 text-xs text-[var(--fg-muted)] space-y-2">
             <p>{t.disclaimer}</p>
             <p className="tnum">
-              {t.footerUpdated}: {meta.last_date}
+              {t.footerUpdated}: {lastUpdated}
             </p>
           </div>
         </footer>

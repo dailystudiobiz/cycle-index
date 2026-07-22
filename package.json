@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "data": "python3 pipeline/build_kss.py",
-    "prebuild": "mkdir -p public/data && cp data/kss.json public/data/kss.json"
+    "prebuild": "mkdir -p public/data && cp data/*.json public/data/"
   },
   "dependencies": {
     "next": "16.2.9",

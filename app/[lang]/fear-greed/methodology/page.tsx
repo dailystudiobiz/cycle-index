@@ -3,7 +3,7 @@ import { loadIndex } from "@/lib/data";
 import { LANGS, isLang, type Lang } from "@/lib/i18n";
 import { indexMetadata } from "@/lib/meta";
 
-const ID = "kss" as const;
+const ID = "kfg" as const;
 
 export function generateStaticParams() {
   return LANGS.map((lang) => ({ lang }));

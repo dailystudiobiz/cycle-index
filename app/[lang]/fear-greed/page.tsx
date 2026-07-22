@@ -3,8 +3,13 @@ import IndexJsonLd from "@/components/IndexJsonLd";
 import { loadIndex } from "@/lib/data";
 import { isLang, type Lang } from "@/lib/i18n";
 import { indexMetadata } from "@/lib/meta";
+import { LANGS } from "@/lib/i18n";
 
-const ID = "kss" as const;
+const ID = "kfg" as const;
+
+export function generateStaticParams() {
+  return LANGS.map((lang) => ({ lang }));
+}
 
 export async function generateMetadata({ params }: { params: Promise<{ lang: string }> }) {
   const { lang } = await params;

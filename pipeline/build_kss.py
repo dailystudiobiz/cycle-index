@@ -1,31 +1,29 @@
 """
-KSS (Korea Semiconductor Score) — 전체 이력 소급 계산 파이프라인.
+KSS (Korea Semiconductor Score) — 전체 이력 소급 계산.
 
 산식을 벡터화해서, 오늘 하루가 아니라 데이터가 존재하는 전 기간에 대해
 매 거래일의 KSS를 계산한다.
 
-산식 (froth 0~100, 100 = 과열):
+구성 (froth 0~100, 100 = 과열):
   semi_dev200   30%  삼전·하닉 평균 200일선 이격      score = clamp(50 + dev*(50/40))
   sox_dev200    20%  SOX 200일선 이격                 score = clamp(50 + dev*(50/40))
   semi_dd52     20%  삼전·하닉 평균 52주 고점 낙폭    score = clamp(100 + dd*2)
   semi_ma50     15%  삼전·하닉 50일선 위/아래          score = 70 / 30
   kospi_dev200  15%  KOSPI 200일선 이격               score = clamp(50 + dev*(50/30))
 
-유효한 지표만으로 가중평균하고 가중치는 재정규화한다(원본 동일).
+유효한 지표만으로 가중평균하고 가중치는 재정규화한다.
 
 출력: data/kss.json
 """
 from __future__ import annotations
 
-import json
 import os
-import time
 
 import pandas as pd
-import yfinance as yf
 
-BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT_FILE = os.path.join(BASE, "data", "kss.json")
+from common import DATA_DIR, clamp, fetch_closes, freeze_published, write
+
+OUT_FILE = os.path.join(DATA_DIR, "kss.json")
 
 SEMI_TICKERS = {"005930.KS": "삼성전자", "000660.KS": "SK하이닉스"}
 SOX_TICKER = "^SOX"
@@ -39,71 +37,7 @@ WEIGHTS = {
     "kospi_dev200": 0.15,
 }
 
-# 국면 임계값 — 원본과 동일
 STATES = [(75, "overheated"), (50, "extended"), (25, "neutral"), (float("-inf"), "depressed")]
-
-
-def _history(ticker: str, period: str) -> pd.Series | None:
-    try:
-        h = yf.Ticker(ticker).history(period=period, auto_adjust=True)
-    except Exception as exc:  # 네트워크·심볼 오류
-        print(f"  x {ticker} ({period}) 조회 실패: {exc}")
-        return None
-    if h is None or h.empty:
-        return None
-    s = h["Close"].dropna()
-    s.index = pd.to_datetime(s.index).tz_localize(None).normalize()
-    return s[~s.index.duplicated(keep="last")]
-
-
-def _fetch_once(ticker: str) -> pd.Series | None:
-    """max 응답과 최근 구간을 합쳐 한 번 가져온다."""
-    full = _history(ticker, "max")
-    recent = _history(ticker, "3mo")
-    if full is None and recent is None:
-        return None
-    if full is None:
-        return recent
-    if recent is None:
-        return full
-    # 겹치는 구간은 최근 응답을 채택한다(더 나중에 확정된 값).
-    return pd.concat([full[~full.index.isin(recent.index)], recent]).sort_index()
-
-
-# 마지막 거래일이 오늘로부터 이 일수 안이면 정상으로 보고 재시도하지 않는다.
-# 주말(금 종가 → 월요일 실행)을 덮을 만큼 넉넉하게 잡는다.
-FRESH_DAYS = 4
-
-
-def fetch_closes(ticker: str, attempts: int = 2, pause: float = 2.0) -> pd.Series | None:
-    """
-    전 기간 일별 종가. **확정 종가만** 쓴다.
-
-    Yahoo는 당일 장 마감 직후에도 종가를 비워둔 채(NaN) 행만 먼저 내놓는다.
-    _history 의 dropna 가 이를 걸러내므로, 아직 정산되지 않은 날은 자연히 제외된다.
-    (장중에 조회하면 잠정가가 실값처럼 들어오므로 이 파이프라인은 반드시
-     양 시장 마감 뒤에 돌려야 한다 — update.sh 주석 참고.)
-
-    별개로 period="max" 응답이 최근 구간을 통째로 빠뜨리는 경우가 있어
-    max + 최근 구간을 합치고, 결과가 눈에 띄게 오래됐을 때만 한 번 더 시도한다.
-    """
-    best: pd.Series | None = None
-    for i in range(attempts):
-        s = _fetch_once(ticker)
-        if s is not None and (best is None or s.index[-1] > best.index[-1]):
-            if best is not None:
-                print(f"    ↳ {ticker}: 재시도에서 {best.index[-1].date()} → {s.index[-1].date()} 로 보강")
-            best = s
-        if best is not None and (pd.Timestamp.today().normalize() - best.index[-1]).days <= FRESH_DAYS:
-            break
-        if i < attempts - 1:
-            time.sleep(pause)
-
-    if best is None:
-        print(f"  x {ticker} 데이터 없음")
-        return None
-    print(f"  o {ticker:<12} {len(best):>6} rows  {best.index[0].date()} ~ {best.index[-1].date()}")
-    return best
 
 
 def dev200(close: pd.Series) -> pd.Series:
@@ -119,12 +53,7 @@ def dd52(close: pd.Series) -> pd.Series:
 
 
 def above50(close: pd.Series) -> pd.Series:
-    """50일선 위=True."""
     return close > close.rolling(50).mean()
-
-
-def clamp(s: pd.Series, lo: float = 0.0, hi: float = 100.0) -> pd.Series:
-    return s.clip(lower=lo, upper=hi)
 
 
 def score_dev(dev: pd.Series, full: float = 40.0) -> pd.Series:
@@ -141,11 +70,24 @@ def score_above50(above: pd.Series) -> pd.Series:
     return above.map({True: 70.0, False: 30.0}).astype("float64")
 
 
-def classify(kss: float) -> str:
+def classify(v: float) -> str:
     for threshold, name in STATES:
-        if kss >= threshold:
+        if v >= threshold:
             return name
     return "depressed"
+
+
+def _raw_for(key: str, row) -> float | bool | None:
+    mapping = {
+        "semi_dev200": "semi_dev200_pct",
+        "sox_dev200": "sox_dev200_pct",
+        "semi_dd52": "semi_dd52_pct",
+        "kospi_dev200": "kospi_dev200_pct",
+    }
+    if key == "semi_ma50":
+        return bool(row["semi_above50"])
+    val = row[mapping[key]]
+    return None if pd.isna(val) else round(float(val), 1)
 
 
 def build() -> dict:
@@ -159,7 +101,6 @@ def build() -> dict:
     if not semi or kospi is None:
         raise SystemExit("필수 시계열(반도체 또는 KOSPI) 확보 실패")
 
-    # 기준 달력: KOSPI 거래일. 해외 지수는 같은 날짜로 정렬 후 직전값 유지.
     calendar = kospi.index
 
     print("-- 지표 계산 --")
@@ -167,14 +108,13 @@ def build() -> dict:
     # 공통 달력에 먼저 맞추면 ffill로 채운 중복값이 롤링 창에 섞여 값이 왜곡된다
     # (KOSPI 거래일과 KR 종목·美 SOX 거래일이 서로 다름).
     semi_dev_parts, semi_dd_parts, semi_a50_parts = [], [], []
-    for ticker, close in semi.items():
+    for close in semi.values():
         semi_dev_parts.append(dev200(close).reindex(calendar).ffill())
         semi_dd_parts.append(dd52(close).reindex(calendar).ffill())
         semi_a50_parts.append(above50(close).reindex(calendar).ffill())
 
     semi_dev = pd.concat(semi_dev_parts, axis=1).mean(axis=1)
     semi_dd = pd.concat(semi_dd_parts, axis=1).mean(axis=1)
-    # 과반이 50일선 위면 True (원본: 비율 > 0.5)
     semi_a50 = pd.concat(semi_a50_parts, axis=1).astype("float64").mean(axis=1) > 0.5
 
     sox_dev = (
@@ -195,7 +135,6 @@ def build() -> dict:
         index=calendar,
     )
 
-    # 유효 지표만 가중평균 + 가중치 재정규화 (원본 로직)
     w = pd.Series(WEIGHTS)
     valid = scores.notna()
     total_w = valid.mul(w, axis=1).sum(axis=1)
@@ -213,44 +152,20 @@ def build() -> dict:
     )
     raw["semi_above50"] = semi_a50
 
-    df = pd.DataFrame({"kss": kss}).join(raw).join(scores.add_suffix("_score"))
-    # 200일선이 필요하므로 초기 구간은 자연히 결측 — 전 지표가 모인 시점부터 채택
-    df = df[df["kss"].notna() & df["semi_dev200_pct"].notna() & df["kospi_dev200_pct"].notna()]
+    df = pd.DataFrame({"v": kss}).join(raw).join(scores.add_suffix("_score"))
+    df = df[df["v"].notna() & df["semi_dev200_pct"].notna() & df["kospi_dev200_pct"].notna()]
     if df.empty:
         raise SystemExit("계산 결과가 비었음")
 
     print(f"-- 완료: {len(df)}일  {df.index[0].date()} ~ {df.index[-1].date()} --")
 
     history = [
-        {
-            "d": idx.strftime("%Y-%m-%d"),
-            "k": round(float(r.kss), 1),
-            "s": classify(float(r.kss)),
-        }
+        {"d": idx.strftime("%Y-%m-%d"), "k": round(float(r.v), 1), "s": classify(float(r.v))}
         for idx, r in df.iterrows()
     ]
 
-    last_idx = df.index[-1]
-    last = df.iloc[-1]
-    latest = {
-        "date": last_idx.strftime("%Y-%m-%d"),
-        "kss": round(float(last.kss), 1),
-        "state": classify(float(last.kss)),
-        "components": [
-            {
-                "key": key,
-                "weight": WEIGHTS[key],
-                "score": None if pd.isna(last[f"{key}_score"]) else round(float(last[f"{key}_score"]), 1),
-                "raw": _raw_for(key, last),
-            }
-            for key in WEIGHTS
-        ],
-    }
-
-    # 분포 참고값 — "지금이 역사적으로 어느 위치인가"
-    k = df["kss"]
-    percentile = round(float((k <= float(last.kss)).mean() * 100), 1)
-
+    last_idx, last = df.index[-1], df.iloc[-1]
+    ks = df["v"]
     return {
         "meta": {
             "id": "kss",
@@ -263,86 +178,27 @@ def build() -> dict:
                 "sox": SOX_TICKER,
                 "kospi": KOSPI_TICKER,
             },
-            "percentile": percentile,
+            "percentile": round(float((ks <= float(last.v)).mean() * 100), 1),
         },
-        "latest": latest,
+        "latest": {
+            "date": last_idx.strftime("%Y-%m-%d"),
+            "value": round(float(last.v), 1),
+            "state": classify(float(last.v)),
+            "components": [
+                {
+                    "key": key,
+                    "weight": WEIGHTS[key],
+                    "score": None
+                    if pd.isna(last[f"{key}_score"])
+                    else round(float(last[f"{key}_score"]), 1),
+                    "raw": _raw_for(key, last),
+                }
+                for key in WEIGHTS
+            ],
+        },
         "history": history,
     }
 
 
-def _raw_for(key: str, row) -> float | bool | None:
-    mapping = {
-        "semi_dev200": "semi_dev200_pct",
-        "sox_dev200": "sox_dev200_pct",
-        "semi_dd52": "semi_dd52_pct",
-        "kospi_dev200": "kospi_dev200_pct",
-    }
-    if key == "semi_ma50":
-        return bool(row["semi_above50"])
-    val = row[mapping[key]]
-    return None if pd.isna(val) else round(float(val), 1)
-
-
-def freeze_published(payload: dict) -> dict:
-    """
-    이미 게시한 날짜의 값은 그대로 둔다.
-
-    상류 가격이 사후에 미세하게 조정되면(배당 반영 등) 과거 KSS가 반올림 경계에서
-    ±0.1 뒤집히는 것을 실측했다(2017-10-19: 76.5 ↔ 76.6). 게시된 지수가 조용히
-    바뀌면 어제 본 차트와 오늘 본 차트가 달라진다. 그래서 새로 계산한 값은
-    **아직 게시되지 않은 날짜에만** 반영하고, 기존 날짜는 보존한다.
-    """
-    if not os.path.exists(OUT_FILE):
-        return payload
-    try:
-        with open(OUT_FILE, encoding="utf-8") as fp:
-            prev = json.load(fp)
-    except (json.JSONDecodeError, OSError):
-        return payload
-
-    published = {row["d"]: row for row in prev.get("history", [])}
-    if not published:
-        return payload
-
-    kept = changed = added = 0
-    merged = []
-    for row in payload["history"]:
-        old = published.get(row["d"])
-        if old is None:
-            merged.append(row)
-            added += 1
-        else:
-            if old["k"] != row["k"]:
-                changed += 1
-            merged.append(old)
-            kept += 1
-
-    payload["history"] = merged
-    if changed:
-        print(f"-- 게시본 보존: 재계산이 과거 {changed}일을 바꾸려 했으나 기존 값 유지 --")
-    if added:
-        print(f"-- 신규 {added}일 추가 (보존 {kept}일) --")
-
-    # 고정된 이력에 맞춰 최신값·백분위를 다시 맞춘다
-    if merged:
-        last = merged[-1]
-        if payload["latest"]["date"] == last["d"]:
-            payload["latest"]["kss"] = last["k"]
-            payload["latest"]["state"] = last["s"]
-        ks = [r["k"] for r in merged]
-        payload["meta"]["percentile"] = round(
-            sum(1 for k in ks if k <= last["k"]) / len(ks) * 100, 1
-        )
-    return payload
-
-
 if __name__ == "__main__":
-    payload = freeze_published(build())
-    os.makedirs(os.path.dirname(OUT_FILE), exist_ok=True)
-    with open(OUT_FILE, "w", encoding="utf-8") as fp:
-        json.dump(payload, fp, ensure_ascii=False, separators=(",", ":"))
-    size_kb = os.path.getsize(OUT_FILE) / 1024
-    m = payload["meta"]
-    print(f"\n=> {OUT_FILE}  ({size_kb:.0f} KB)")
-    print(f"   {m['count']}일  {m['first_date']} ~ {m['last_date']}")
-    print(f"   최신 KSS {payload['latest']['kss']} ({payload['latest']['state']}) / 역사적 백분위 {m['percentile']}%")
+    write(freeze_published(build(), OUT_FILE), OUT_FILE)
