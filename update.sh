@@ -67,3 +67,36 @@ git -c user.name="DailyStudio" -c user.email="dailystudiobiz@gmail.com" commit -
 git push -q origin main
 
 log "푸시 완료 — Cloudflare Pages 재빌드 시작됨"
+
+# ── IndexNow ────────────────────────────────────────────────────────────────
+# 구글 Search Console 의 수동 색인 요청은 하루 할당량이 있어 매일 쓸 수 없다.
+# IndexNow 는 할당량 없이 Bing·**네이버**·Yandex·Seznam 에 한 번에 통보한다.
+# 네이버는 외부 사이트를 잘 안 띄우지만, 최소한 색인은 되어야 AI 브리핑 출처로도 걸린다.
+#
+# 키는 비밀이 아니다 — public/<key>.txt 로 공개 서빙되는 것이 규격상 요구사항이다.
+# 재빌드가 끝나기 전에 통보하면 크롤러가 옛 페이지를 볼 수 있어 잠시 기다린다.
+INDEXNOW_KEY="8420822e413136ce4ad5a1f7d8736a75"
+HOST="semicycleindex.com"
+
+log "Cloudflare Pages 배포 대기 (90초)"
+sleep 90
+
+URLS=$(curl -s --max-time 20 "https://${HOST}/sitemap.xml" \
+  | grep -o '<loc>[^<]*</loc>' | sed 's/<[^>]*>//g')
+
+if [ -z "$URLS" ]; then
+  log "IndexNow 건너뜀: 사이트맵을 읽지 못함"
+else
+  PAYLOAD=$(python3 -c "
+import json, sys
+urls = [u.strip() for u in sys.stdin if u.strip()]
+print(json.dumps({'host': '$HOST', 'key': '$INDEXNOW_KEY', 'urlList': urls}))
+" <<< "$URLS")
+
+  CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
+    -X POST "https://api.indexnow.org/indexnow" \
+    -H "Content-Type: application/json; charset=utf-8" \
+    -d "$PAYLOAD")
+  # 200 = 접수, 202 = 접수했으나 키 검증 대기. 둘 다 정상이다.
+  log "IndexNow 통보: HTTP $CODE ($(wc -l <<< "$URLS")건)"
+fi
