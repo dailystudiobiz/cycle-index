@@ -58,7 +58,49 @@ type Dict = {
   disclaimer: string;
   footerUpdated: string;
   langSwitch: string;
+  cycles: CyclesDict;
   indices: Record<IndexId, IndexDict>;
+};
+
+/** 역대 사이클 페이지 문구. 표의 숫자는 전부 이력에서 계산하므로 여기엔 라벨만 둔다. */
+type CyclesDict = {
+  nav: string;
+  title: (indexTitle: string) => string;
+  metaDescription: (from: string, to: string) => string;
+  lead: (a: { from: string; to: string; days: number; hot: number; cold: number }) => string;
+  nowHeading: string;
+  nowOngoing: (a: {
+    days: number;
+    since: string;
+    until: string;
+    rank: number;
+    latest: number;
+    latestDate: string;
+    inBand: boolean;
+  }) => string;
+  nowSettled: (a: { latest: number; latestDate: string }) => string;
+  hotHeading: (threshold: number) => string;
+  coldHeading: (threshold: number) => string;
+  colPeriod: string;
+  colDays: string;
+  colPeak: string;
+  colTrough: string;
+  colRecovery: string;
+  ongoingLabel: string;
+  notRecovered: string;
+  daysUnit: (n: number) => string;
+  readingHeading: string;
+  readings: (a: {
+    high: { value: number; date: string };
+    low: { value: number; date: string };
+    medianRecovery: number | null;
+    lastColdEnd: string | null;
+    yearsSinceCold: number | null;
+    longest: { days: number; start: string; end: string };
+  }) => string[];
+  howHeading: string;
+  how: (a: { hot: number; cold: number; minDays: number; gap: number }) => string[];
+  emptyCold: string;
 };
 
 const ko: Dict = {
@@ -97,6 +139,63 @@ const ko: Dict = {
     "이 사이트는 정보 제공을 목적으로 하며 투자 권유나 자문이 아닙니다. 게시된 지수는 공개된 가격 데이터를 정해진 산식으로 가공한 참고 지표로, 특정 종목의 매수·매도를 권유하지 않으며 수익을 보장하지 않습니다. 투자 판단과 그 결과에 대한 책임은 투자자 본인에게 있습니다. 데이터에 오류나 지연이 있을 수 있습니다.",
   footerUpdated: "최종 갱신",
   langSwitch: "English",
+  cycles: {
+    nav: "역대 사이클",
+    // 검색어("반도체 사이클", "역대 반도체 사이클")를 그대로 담되 문장으로 읽히게 둔다.
+    title: () => "역대 반도체 사이클 — 2000년 이후 과열·침체 구간 전체",
+    metaDescription: (from, to) =>
+      `${from}부터 ${to}까지 한국 반도체 사이클 지수(KSS)의 역대 과열·침체 구간을 전부 정리했습니다. 각 구간의 시작일과 종료일, 지속 거래일 수, 구간 최고·최저값, 중립 복귀까지 걸린 기간을 표로 공개합니다. 원본 데이터는 JSON으로 내려받을 수 있습니다.`,
+    lead: ({ from, to, days, hot, cold }) =>
+      `${from}부터 ${to}까지 ${days.toLocaleString("ko-KR")}거래일을 같은 산식으로 계산한 결과, 과열 구간이 ${hot}번, 침체 구간이 ${cold}번 있었습니다. 아래 표는 그 구간들을 전부 나열한 것입니다. 지수가 매일 갱신되므로 이 표도 함께 다시 계산됩니다.`,
+    nowHeading: "지금은 어디인가",
+    nowOngoing: ({ days, since, until, rank, latest, latestDate, inBand }) => {
+      const rankText = rank === 1 ? "가장 긴" : `${rank}번째로 긴`;
+      if (inBand) {
+        return `${latestDate} 지수는 ${latest}입니다. ${since}에 시작된 과열 구간이 ${days.toLocaleString("ko-KR")}거래일째 이어지고 있으며, 2000년 이후 ${rankText} 과열 구간입니다.`;
+      }
+      return `${latestDate} 지수는 ${latest}로 과열 기준선 아래에 있습니다. 다만 ${since}부터 ${until}까지 ${days.toLocaleString("ko-KR")}거래일 이어진 과열 구간이 아직 중립선(50)까지 내려오지는 않았습니다. 이 구간은 2000년 이후 ${rankText} 과열 구간입니다.`;
+    },
+    nowSettled: ({ latest, latestDate }) =>
+      `${latestDate} 지수는 ${latest}이며, 현재 과열 구간에 있지 않습니다.`,
+    hotHeading: (th) => `과열 구간 (${th} 이상)`,
+    coldHeading: (th) => `침체 구간 (${th} 이하)`,
+    colPeriod: "구간",
+    colDays: "거래일",
+    colPeak: "구간 최고",
+    colTrough: "구간 최저",
+    colRecovery: "중립 복귀까지",
+    ongoingLabel: "진행 중",
+    notRecovered: "아직 복귀 안 함",
+    daysUnit: (n) => `${n.toLocaleString("ko-KR")}일`,
+    readingHeading: "데이터에서 보이는 것",
+    readings: ({ high, low, medianRecovery, lastColdEnd, yearsSinceCold, longest }) => {
+      const out = [
+        `역대 최고값은 ${high.value} (${high.date}), 최저값은 ${low.value} (${low.date})입니다.`,
+        `가장 길었던 과열 구간은 ${longest.start}부터 ${longest.end}까지 ${longest.days.toLocaleString("ko-KR")}거래일입니다.`,
+      ];
+      if (medianRecovery !== null) {
+        out.push(
+          `과열 구간이 끝난 뒤 지수가 중립선(50)으로 내려오기까지는 중앙값 기준 ${medianRecovery.toLocaleString("ko-KR")}거래일이 걸렸습니다. 다만 13일 만에 내려온 적도, 419일이 걸린 적도 있어 편차가 매우 큽니다.`,
+        );
+      }
+      if (lastColdEnd && yearsSinceCold !== null) {
+        out.push(
+          `마지막 침체 구간은 ${lastColdEnd}에 끝났습니다. 그 뒤 약 ${yearsSinceCold}년 동안 지수가 침체 구간까지 내려간 적은 없습니다.`,
+        );
+      }
+      out.push(
+        "이 표는 지수가 지나온 자리를 기록한 것이며, 앞으로의 방향을 예측하지 않습니다. 같은 구간에서 상승이 이어진 사례와 곧바로 되돌린 사례가 모두 있었습니다.",
+      );
+      return out;
+    },
+    howHeading: "구간을 나눈 기준",
+    how: ({ hot, cold, minDays, gap }) => [
+      `지수가 ${hot} 이상인 날이 이어지면 과열 구간, ${cold} 이하인 날이 이어지면 침체 구간으로 묶었습니다.`,
+      `하루 이틀 기준선을 스쳤다고 구간을 끊으면 한 국면이 여러 조각으로 쪼개집니다. 그래서 ${gap}거래일 이내의 이탈은 같은 구간으로 이었고, ${minDays}거래일보다 짧은 구간은 표에서 뺐습니다.`,
+      `"중립 복귀까지"는 구간이 끝난 날부터 지수가 50 미만으로 처음 내려온 날까지의 거래일 수입니다.`,
+    ],
+    emptyCold: "기준을 만족하는 침체 구간이 없습니다.",
+  },
   indices: {
     kss: {
       title: "반도체 사이클 지수",
@@ -358,6 +457,62 @@ const en: Dict = {
     "This site is published for informational purposes and is not investment advice or a solicitation to trade. The indices are reference measures derived from public price data by fixed formulas. They do not recommend buying or selling any security and guarantee no outcome. Investment decisions and their consequences are the responsibility of the individual. Data may contain errors or delays.",
   footerUpdated: "Last updated",
   langSwitch: "한국어",
+  cycles: {
+    nav: "Cycle history",
+    title: (t) => `${t}: every cycle since 2000`,
+    metaDescription: (from, to) =>
+      `Every overheated and depressed phase of the Korea Semiconductor Cycle Index (KSS) from ${from} to ${to}. Start and end dates, length in trading days, peak and trough readings, and how long each phase took to return to neutral. The underlying data is available as JSON.`,
+    lead: ({ from, to, days, hot, cold }) =>
+      `Across ${days.toLocaleString("en-US")} trading days from ${from} to ${to}, computed with one formula throughout, the index recorded ${hot} overheated phases and ${cold} depressed phases. Every one of them is listed below. The index updates daily, and this table is recomputed with it.`,
+    nowHeading: "Where the index sits now",
+    nowOngoing: ({ days, since, until, rank, latest, latestDate, inBand }) => {
+      const ord = rank === 1 ? "longest" : `${rank}${rank === 2 ? "nd" : rank === 3 ? "rd" : "th"} longest`;
+      if (inBand) {
+        return `The index closed at ${latest} on ${latestDate}. An overheated phase that began on ${since} has now run for ${days.toLocaleString("en-US")} trading days — the ${ord} since 2000.`;
+      }
+      return `The index closed at ${latest} on ${latestDate}, back below the overheated threshold. The phase that ran from ${since} to ${until} — ${days.toLocaleString("en-US")} trading days, the ${ord} since 2000 — has still not fallen back to the neutral line of 50.`;
+    },
+    nowSettled: ({ latest, latestDate }) =>
+      `The index closed at ${latest} on ${latestDate} and is not in an overheated phase.`,
+    hotHeading: (th) => `Overheated phases (${th} and above)`,
+    coldHeading: (th) => `Depressed phases (${th} and below)`,
+    colPeriod: "Period",
+    colDays: "Trading days",
+    colPeak: "Peak",
+    colTrough: "Trough",
+    colRecovery: "Days to neutral",
+    ongoingLabel: "Ongoing",
+    notRecovered: "Not yet",
+    daysUnit: (n) => n.toLocaleString("en-US"),
+    readingHeading: "What the record shows",
+    readings: ({ high, low, medianRecovery, lastColdEnd, yearsSinceCold, longest }) => {
+      const out = [
+        `The highest reading on record is ${high.value} (${high.date}); the lowest is ${low.value} (${low.date}).`,
+        `The longest overheated phase ran from ${longest.start} to ${longest.end}, a span of ${longest.days.toLocaleString("en-US")} trading days.`,
+      ];
+      if (medianRecovery !== null) {
+        out.push(
+          `After an overheated phase ended, the index took a median of ${medianRecovery.toLocaleString("en-US")} trading days to fall back below the neutral line of 50. The spread is wide: one phase resolved in 13 days, another took 419.`,
+        );
+      }
+      if (lastColdEnd && yearsSinceCold !== null) {
+        out.push(
+          `The most recent depressed phase ended on ${lastColdEnd}. The index has not returned to that band in roughly ${yearsSinceCold} years since.`,
+        );
+      }
+      out.push(
+        "This table records where the index has been. It does not forecast where it goes next: past readings in the same band were followed both by continued advances and by sharp reversals.",
+      );
+      return out;
+    },
+    howHeading: "How the phases are defined",
+    how: ({ hot, cold, minDays, gap }) => [
+      `Consecutive days at or above ${hot} are grouped into an overheated phase; days at or below ${cold} form a depressed phase.`,
+      `Ending a phase every time the index brushes the line for a day or two would split a single episode into fragments. Gaps of up to ${gap} trading days are therefore bridged, and phases shorter than ${minDays} trading days are excluded.`,
+      `"Days to neutral" counts trading days from the end of a phase until the index first closed below 50.`,
+    ],
+    emptyCold: "No depressed phase meets the criteria.",
+  },
   indices: {
     kss: {
       title: "Korea Semiconductor Cycle Index",

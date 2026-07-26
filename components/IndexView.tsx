@@ -136,6 +136,14 @@ export default function IndexView({
         >
           {t.methodologyHeading}
         </Link>
+        {id === "kss" && (
+          <Link
+            href={`/${lang}/cycles/`}
+            className="underline underline-offset-4 hover:text-[var(--fg-muted)]"
+          >
+            {t.cycles.nav}
+          </Link>
+        )}
         {others.map((o) => (
           <Link
             key={o}
