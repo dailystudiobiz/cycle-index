@@ -7,20 +7,34 @@ import { SITE_URL } from "./site";
 export function indexMetadata(
   id: IndexId,
   lang: Lang,
-  opts: { methodology?: boolean; cycles?: { from: string; to: string } } = {},
+  opts: {
+    methodology?: boolean;
+    cycles?: { from: string; to: string };
+    outcomes?: { from: string; to: string };
+  } = {},
 ): Metadata {
   const t = dict(lang);
   const ix = t.indices[id];
-  const sub = opts.methodology ? "methodology/" : opts.cycles ? "cycles/" : "";
+  const sub = opts.methodology
+    ? "methodology/"
+    : opts.cycles
+      ? "cycles/"
+      : opts.outcomes
+        ? "outcomes/"
+        : "";
   const suffix = `${INDEX_PATH[id]}${sub}`;
   const title = opts.methodology
     ? `${t.methodologyHeading} — ${ix.title}`
     : opts.cycles
       ? t.cycles.title(ix.title)
-      : ix.title;
+      : opts.outcomes
+        ? t.forward.title
+        : ix.title;
   const description = opts.cycles
     ? t.cycles.metaDescription(opts.cycles.from, opts.cycles.to)
-    : ix.metaDescription;
+    : opts.outcomes
+      ? t.forward.metaDescription(opts.outcomes.from, opts.outcomes.to)
+      : ix.metaDescription;
   return {
     metadataBase: new URL(SITE_URL),
     title,

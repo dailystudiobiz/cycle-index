@@ -52,6 +52,16 @@ if [ -z "$CHANGED" ]; then
   exit 0
 fi
 
+# 파생 분석은 원본 지표가 바뀐 뒤에만 다시 낸다.
+# kfg_forward 는 게시된 kfg.json 을 읽으므로 반드시 KFG 재계산 **후**에 돌려야 한다.
+case " $CHANGED " in
+  *" kfg "*)
+    log "[kfg_forward] 국면별 이후 등락 재계산"
+    python3 pipeline/build_kfg_forward.py | sed "s/^/  /"
+    git add "data/kfg_forward.json"
+    ;;
+esac
+
 MSG="data:$(for ix in $CHANGED; do printf " %s %s=%s" "$ix" "$(last_date "$ix")" "$(latest_val "$ix")"; done)"
 git -c user.name="DailyStudio" -c user.email="dailystudiobiz@gmail.com" commit -q -m "$MSG"
 git push -q origin main

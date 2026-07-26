@@ -144,6 +144,14 @@ export default function IndexView({
             {t.cycles.nav}
           </Link>
         )}
+        {id === "kfg" && (
+          <Link
+            href={`/${lang}/fear-greed/outcomes/`}
+            className="underline underline-offset-4 hover:text-[var(--fg-muted)]"
+          >
+            {t.forward.nav}
+          </Link>
+        )}
         {others.map((o) => (
           <Link
             key={o}

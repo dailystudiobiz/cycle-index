@@ -59,6 +59,9 @@ export default async function LangLayout({
               <Link href={`/${l}/cycles/`} className="hover:text-[var(--fg)]">
                 {t.cycles.nav}
               </Link>
+              <Link href={`/${l}/fear-greed/outcomes/`} className="hover:text-[var(--fg)]">
+                {t.forward.nav}
+              </Link>
               <Link href={`/${other}/`} className="hover:text-[var(--fg)]" hrefLang={other}>
                 {t.langSwitch}
               </Link>

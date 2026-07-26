@@ -12,8 +12,9 @@ export default function sitemap(): MetadataRoute.Sitemap {
       const base = INDEX_PATH[id];
       return [
         { path: base, priority: id === "kss" ? 1 : 0.9 },
-        // 역대 사이클 페이지는 KSS 에만 있다.
+        // 파생 분석 페이지는 지표마다 다르다.
         ...(id === "kss" ? [{ path: `${base}cycles/`, priority: 0.9 }] : []),
+        ...(id === "kfg" ? [{ path: `${base}outcomes/`, priority: 0.9 }] : []),
         { path: `${base}methodology/`, priority: 0.7 },
       ].map(({ path, priority }) => ({
         url: `${SITE_URL}/${lang}/${path}`,

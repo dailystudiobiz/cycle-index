@@ -6,6 +6,19 @@ export const DEFAULT_LANG: Lang = "ko";
 
 export const BRAND = "SemiCycle";
 
+/**
+ * 받침 유무에 따라 조사를 고른다.
+ *
+ * 구간 이름을 문장에 끼워 넣는 문구가 여럿이라 고정 조사를 쓰면 "극단적 공포으로"
+ * 같은 말이 나온다. 이름이 데이터에서 오므로 사람이 매번 고쳐 쓸 수도 없다.
+ */
+function josa(word: string, withFinal: string, withoutFinal: string): string {
+  const code = word.charCodeAt(word.length - 1);
+  const isHangul = code >= 0xac00 && code <= 0xd7a3;
+  const hasFinal = isHangul && (code - 0xac00) % 28 !== 0;
+  return word + (hasFinal ? withFinal : withoutFinal);
+}
+
 type StateText = { label: string; band: string; meaning: string };
 type ComponentText = { label: string; weight: string; what: string };
 
@@ -59,7 +72,50 @@ type Dict = {
   footerUpdated: string;
   langSwitch: string;
   cycles: CyclesDict;
+  forward: ForwardDict;
   indices: Record<IndexId, IndexDict>;
+};
+
+/**
+ * 국면별 이후 등락 페이지 문구.
+ *
+ * 이 페이지는 "이렇게 하면 얼마 번다"를 쓰지 않는다. 매매 시점을 가정하는 순간
+ * 투자 권유가 되기 때문이다. 국면별로 이후 등락이 어떻게 분포했는지만 서술한다.
+ */
+type ForwardDict = {
+  nav: string;
+  title: string;
+  metaDescription: (from: string, to: string) => string;
+  lead: (a: { from: string; to: string; days: number }) => string;
+  notStrategy: string;
+  medianHeading: string;
+  medianIntro: string;
+  positiveHeading: string;
+  positiveIntro: string;
+  spreadHeading: (horizon: string) => string;
+  spreadIntro: string;
+  colState: string;
+  colDays: string;
+  colEpisodes: string;
+  colN: string;
+  colP25: string;
+  colMedian: string;
+  colP75: string;
+  colMin: string;
+  colMax: string;
+  baselineLabel: string;
+  horizonLabel: (days: number) => string;
+  readingHeading: string;
+  readings: (a: {
+    worstState: string;
+    worstMedian: number;
+    fearMedian: number;
+    greedMedian: number;
+    baseMedian: number;
+    horizon: string;
+  }) => string[];
+  limitsHeading: string;
+  limits: (a: { minEpisodes: number; minEpisodeState: string }) => string[];
 };
 
 /** 역대 사이클 페이지 문구. 표의 숫자는 전부 이력에서 계산하므로 여기엔 라벨만 둔다. */
@@ -195,6 +251,50 @@ const ko: Dict = {
       `"중립 복귀까지"는 구간이 끝난 날부터 지수가 50 미만으로 처음 내려온 날까지의 거래일 수입니다.`,
     ],
     emptyCold: "기준을 만족하는 침체 구간이 없습니다.",
+  },
+  forward: {
+    nav: "구간별 이후 등락",
+    title: "공포탐욕지수 구간별, 이후 코스피 등락 분포",
+    metaDescription: (from, to) =>
+      `${from}부터 ${to}까지 코스피 공포탐욕지수(KFG)가 각 구간에 있었던 날들의 이후 20·60·120·250거래일 코스피 등락을 집계했습니다. 구간별 중앙값, 상승 비율, 사분위 범위, 최저·최고를 공개합니다. 흔히 '공포탐욕지수 백테스트'라 부르는 질문의 원자료이며, 매매 전략이 아니라 과거 분포 통계입니다.`,
+    lead: ({ from, to, days }) =>
+      `${from}부터 ${to}까지 ${days.toLocaleString("ko-KR")}거래일을 대상으로, 공포탐욕지수가 각 구간에 있었던 날의 이후 코스피 등락을 모아 분포를 냈습니다. "공포 구간에서 샀으면 어땠나"라는 질문에 흔히 백테스트로 답하지만, 여기서는 매매 시점을 가정하지 않고 그 국면 뒤에 시장이 실제로 어떻게 움직였는지만 집계했습니다.`,
+    notStrategy:
+      "이 표는 전략의 수익률이 아닙니다. 매수·매도 시점을 가정하지 않았고, 거래비용·세금·배당을 반영하지 않았으며, 어떤 행동도 권하지 않습니다. 과거 분포일 뿐 앞으로를 예측하지 않습니다.",
+    medianHeading: "이후 등락 중앙값",
+    medianIntro:
+      "각 구간에 있었던 모든 날에 대해 N거래일 뒤 코스피 등락률을 구한 뒤 중앙값을 낸 것입니다. 평균 대신 중앙값을 쓰는 이유는 몇 번의 폭등·폭락이 평균을 크게 끌어당기기 때문입니다.",
+    positiveHeading: "이후 등락이 플러스였던 비율",
+    positiveIntro:
+      "같은 관측에서 N거래일 뒤 등락이 0보다 컸던 날의 비율입니다. 중앙값이 비슷해도 이 비율이 다르면 분포 모양이 다릅니다.",
+    spreadHeading: (h) => `분포의 폭 (${h}거래일 뒤)`,
+    spreadIntro:
+      "중앙값만 보면 편차가 가려집니다. 같은 구간 안에서도 결과가 얼마나 벌어졌는지 사분위와 최저·최고로 함께 봅니다.",
+    colState: "구간",
+    colDays: "거래일",
+    colEpisodes: "국면 수",
+    colN: "관측",
+    colP25: "하위 25%",
+    colMedian: "중앙값",
+    colP75: "상위 25%",
+    colMin: "최저",
+    colMax: "최고",
+    baselineLabel: "전체 기간 (구간 무관)",
+    horizonLabel: (d) => `${d}일 뒤`,
+    readingHeading: "데이터에서 보이는 것",
+    readings: ({ worstState, worstMedian, fearMedian, greedMedian, baseMedian, horizon }) => [
+      `${horizon}거래일 뒤 기준으로, 전체 기간의 등락 중앙값은 ${baseMedian.toFixed(1)}%입니다. 각 구간의 값은 0이 아니라 이 숫자와 비교해서 읽어야 합니다.`,
+      `극단적 공포 구간 뒤 중앙값은 ${fearMedian.toFixed(1)}%, 극단적 탐욕 구간 뒤 중앙값은 ${greedMedian.toFixed(1)}%로 **양쪽 극단이 모두 전체 기간 중앙값보다 높습니다.** "공포에 사고 탐욕에 판다"는 통념과 달리, 이 데이터에서 탐욕 구간이 이후 하락으로 이어지지는 않았습니다.`,
+      `가장 낮은 구간은 ${josa(worstState, "으로", "로")} 중앙값 ${worstMedian.toFixed(1)}%입니다. 즉 이 지표에서 결과가 갈린 지점은 공포와 탐욕 사이가 아니라, 양극단과 중간 사이였습니다.`,
+      `다만 어느 구간에서든 분포의 폭이 매우 넓습니다. 같은 구간에서 크게 오른 사례와 크게 내린 사례가 모두 있으므로, 중앙값 하나로 다음 결과를 좁힐 수는 없습니다.`,
+    ],
+    limitsHeading: "읽을 때 주의할 것",
+    limits: ({ minEpisodes, minEpisodeState }) => [
+      `**관측이 겹칩니다.** 60일 뒤 등락을 매일 계산하면 이웃한 관측이 거의 같은 기간을 공유합니다. 그래서 '관측' 수가 커 보여도 독립 표본이 아닙니다. 연속된 국면을 하나로 센 '국면 수'가 실질 표본 크기에 더 가깝습니다.`,
+      `국면 수가 적은 구간은 중앙값이 몇 번의 사건에 좌우됩니다. 이 표에서 가장 적은 구간은 ${josa(minEpisodeState, "으로", "로")} ${minEpisodes}번입니다.`,
+      `코스피 지수의 가격 등락만 계산했습니다. 배당과 거래비용, 세금은 포함하지 않았습니다.`,
+      `구간 판정에 쓴 공포탐욕지수 값은 이 사이트가 게시한 값이며, 게시 후에는 다시 계산하지 않습니다. 즉 과거 시점에서 실제로 볼 수 있었던 값과 같은 산식으로 소급 계산한 값입니다.`,
+    ],
   },
   indices: {
     kss: {
@@ -512,6 +612,50 @@ const en: Dict = {
       `"Days to neutral" counts trading days from the end of a phase until the index first closed below 50.`,
     ],
     emptyCold: "No depressed phase meets the criteria.",
+  },
+  forward: {
+    nav: "Forward returns",
+    title: "What the KOSPI did next, by fear & greed band",
+    metaDescription: (from, to) =>
+      `KOSPI moves over the following 20, 60, 120 and 250 trading days, grouped by which band the Korea Fear & Greed Index (KFG) sat in, from ${from} to ${to}. Median, share positive, interquartile range, minimum and maximum for each band. This is the raw record behind the question people usually ask as a "fear and greed backtest" — historical distributions, not a trading strategy.`,
+    lead: ({ from, to, days }) =>
+      `Across ${days.toLocaleString("en-US")} trading days from ${from} to ${to}, every day is grouped by the fear & greed band it fell in, and the KOSPI's subsequent move is recorded. People usually pose this as a backtest — "what if you had bought in extreme fear?" — but no entry or exit is assumed here. This is simply what the market did after each band.`,
+    notStrategy:
+      "These are not strategy returns. No entry or exit is assumed, transaction costs, taxes and dividends are excluded, and nothing here recommends any action. Past distributions do not forecast future ones.",
+    medianHeading: "Median subsequent move",
+    medianIntro:
+      "For every day in a band, the KOSPI's percentage change N trading days later, summarised by the median. The median is used instead of the mean because a handful of crashes and melt-ups pull an average a long way.",
+    positiveHeading: "Share of observations that rose",
+    positiveIntro:
+      "The proportion of the same observations where the move N trading days later was above zero. Two bands can share a median and still have very different distributions.",
+    spreadHeading: (h) => `How wide the outcomes were (${h} trading days later)`,
+    spreadIntro:
+      "A median hides dispersion. The quartiles and the extremes show how far apart outcomes ran within the same band.",
+    colState: "Band",
+    colDays: "Trading days",
+    colEpisodes: "Episodes",
+    colN: "Observations",
+    colP25: "25th pct",
+    colMedian: "Median",
+    colP75: "75th pct",
+    colMin: "Min",
+    colMax: "Max",
+    baselineLabel: "All days (any band)",
+    horizonLabel: (d) => `${d}d`,
+    readingHeading: "What the record shows",
+    readings: ({ worstState, worstMedian, fearMedian, greedMedian, baseMedian, horizon }) => [
+      `Over ${horizon} trading days, the median move across all days is ${baseMedian}%. Each band should be read against that number, not against zero.`,
+      `Extreme fear was followed by a median of ${fearMedian}% and extreme greed by ${greedMedian}% — **both extremes sit above the all-days median.** Contrary to the familiar "buy fear, sell greed" framing, greed readings were not followed by declines in this record.`,
+      `The weakest band is ${worstState}, at ${worstMedian}%. In this data the dividing line is not fear versus greed, but the extremes versus the middle.`,
+      `Dispersion is wide in every band. Large gains and large losses both follow the same readings, so a single median cannot narrow down the next outcome.`,
+    ],
+    limitsHeading: "How to read this carefully",
+    limits: ({ minEpisodes, minEpisodeState }) => [
+      `**The observations overlap.** Computing a 60-day forward move on every date means neighbouring observations cover almost the same stretch of market. The observation count is therefore not a count of independent samples; the number of distinct episodes is far closer to the effective sample size.`,
+      `Bands with few episodes have medians that hinge on a handful of events. The thinnest here is ${minEpisodeState}, with ${minEpisodes}.`,
+      `Only the KOSPI price index is measured. Dividends, transaction costs and taxes are excluded.`,
+      `Band assignment uses the index values this site published, which are never recomputed after publication — the same formula applied consistently across the whole record.`,
+    ],
   },
   indices: {
     kss: {

@@ -143,6 +143,14 @@ def freeze_published(payload: dict, out_file: str) -> dict:
     return payload
 
 
+def write_json(payload: dict, out_file: str) -> None:
+    """지표 형식이 아닌 파생 산출물 저장용. write()는 latest/percentile을 요구한다."""
+    os.makedirs(os.path.dirname(out_file), exist_ok=True)
+    with open(out_file, "w", encoding="utf-8") as fp:
+        json.dump(payload, fp, ensure_ascii=False, separators=(",", ":"))
+    print(f"\n=> {out_file}  ({os.path.getsize(out_file) / 1024:.1f} KB)")
+
+
 def write(payload: dict, out_file: str) -> None:
     os.makedirs(os.path.dirname(out_file), exist_ok=True)
     with open(out_file, "w", encoding="utf-8") as fp:
