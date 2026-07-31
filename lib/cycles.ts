@@ -97,21 +97,24 @@ function extractRuns(
         top ? (p.k > best.k ? p : best) : (p.k < best.k ? p : best),
       );
 
-      // 오늘까지 이어지는 구간은 "종료"로 적을 수 없다. 마지막 며칠이 밴드를
-      // 살짝 벗어났더라도 MAX_GAP_DAYS 안이면 아직 끝나지 않은 것으로 본다.
-      const ongoing = lastIdx - to <= MAX_GAP_DAYS;
-
+      // 중립선을 되돌린 날이 있으면 그 구간은 확실히 끝난 것이다.
       let recoveredAt: string | null = null;
       let recoveryDays: number | null = null;
-      if (!ongoing) {
-        for (let i = to + 1; i <= lastIdx; i++) {
-          if (recovered(history[i].k)) {
-            recoveredAt = history[i].d;
-            recoveryDays = i - to;
-            break;
-          }
+      for (let i = to + 1; i <= lastIdx; i++) {
+        if (recovered(history[i].k)) {
+          recoveredAt = history[i].d;
+          recoveryDays = i - to;
+          break;
         }
       }
+
+      // 오늘까지 이어지는 구간은 "종료"로 적을 수 없다. 마지막 며칠이 밴드를
+      // 살짝 벗어났더라도 MAX_GAP_DAYS 안이면 아직 끝나지 않은 것으로 본다.
+      //
+      // 단 중립선을 이미 넘었다면 이탈 보정과 무관하게 끝난 것이다. 이 조건이
+      // 없으면 구간이 끝난 직후 며칠 동안 "아직 중립선까지 내려오지 않았다"고
+      // 쓰면서 그 아래 값을 함께 보여주는 모순이 생긴다(2026-07-29 실측).
+      const ongoing = recoveredAt === null && lastIdx - to <= MAX_GAP_DAYS;
 
       return {
         start: history[from].d,
